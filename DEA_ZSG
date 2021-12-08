@@ -1,0 +1,65 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Dec  6 15:50:49 2021
+
+@author: Otto
+
+Zero sum Game - Data Envelopment Analysis
+
+"""
+
+import pandas as pd
+import numpy as np
+from pyomo.environ import *
+
+data_set = pd.read_csv("ZSG_DEA.txt", sep =" ",header = None)
+
+#Inputs: Energy  [2]and Population[3]
+Energy = data_set[2]
+Population = data_set[3]
+CO2= data_set[1]
+
+#Outputs: GDP (desireble)[4]
+GDP= data_set[4]
+
+
+def cost_efficiency(DMU):
+    model = ConcreteModel()
+    
+#    Chamando variaveis
+     
+    model.h = Var(within=NonNegativeReals)
+#    model.x2 = Var(within=NonNegativeReals)
+    K = np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype = int)
+    L = np.delete(np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype = int),DMU)
+    model.V  = Var(K, within = NonNegativeReals)
+    
+    #Chamando objetivo
+    
+    model.obj = Objective (expr = model.h, sense = minimize)
+    
+    #Chamando restrições
+    model.con = ConstraintList()
+    
+    
+    model.con.add(expr= -sum(model.V[i]*float(Energy[int(i)])*(1+(float(Energy[DMU])*(1-model.h)/sum(float(Energy[int(j)]) for j in L))) for i in K) + model.h*float(Energy[DMU])>=0)
+    model.con.add(expr= -sum(model.V[i]*float(Population[int(i)])*(1+(float(Population[DMU])*(1-model.h)/sum(float(Population[int(j)]) for j in L))) for i in K) + model.h*float(Population[DMU])>=0)
+    model.con.add(expr= -sum(model.V[i]*float(CO2[int(i)])*(1+(float(CO2[DMU])*(1-model.h)/sum(float(CO2[int(j)]) for j in L))) for i in K) + model.h*float(CO2[DMU])>=0)
+    
+    model.con.add(expr = sum(model.V[i]*GDP[int(i)] for i in K)>=float(GDP[DMU]))
+    
+#    model.con.add(expr= sum(model.V[i] for i in K) ==  1 )
+    
+#    Resolvendo o problema
+    solver = SolverFactory('ipopt')
+    result_solver = solver.solve(model, tee = True)
+    
+    return(model.obj())
+
+x = np.array([[]])
+for i in np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype=int):
+    try:
+        y= cost_efficiency(i)
+        x=np.append(x,y)
+    except:
+        x= np.append(x,0)
