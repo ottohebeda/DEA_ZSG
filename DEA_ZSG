@@ -1,65 +1,305 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Dec  6 15:50:49 2021
+Created on Mon Nov 21 09:21:33 2022
+
+@author: Otto
+"""
+
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Dec 10 15:51:07 2021
 
 @author: Otto
 
 Zero sum Game - Data Envelopment Analysis
+Industry  2030
+28/07 - Colocar a produção; Testar emissões abatidas como output;
+29/10 - Testar só com custo de investimento...
+08/11 - Revisar metodologia desde o inicio
+10/11 - Testar com mais valores calculados
 
+VER QUESTÃO DO OUTPUT
+
+Acho que vou usar o primeiro modelo...
 """
 
 import pandas as pd
 import numpy as np
 from pyomo.environ import *
+from sympy.solvers import solve
+from sympy import Symbol
 
-data_set = pd.read_csv("ZSG_DEA.txt", sep =" ",header = None)
+data_set = pd.read_csv("DEA_ZSG_Ind_2050_50%_v2.csv")
+#data_set = data_set.drop(index = 9)
+#data_set = data_set.reset_index()
+#data_set= data_set.drop(columns = 'index')
 
-#Inputs: Energy  [2]and Population[3]
-Energy = data_set[2]
-Population = data_set[3]
-CO2= data_set[1]
+#Inputs:
+Energy = data_set['Energia']
+#Energy = data_set['Emissões acumuladas']
+#Energy[0] = Energy[0]*3
+Investment = data_set['Custo']  
+#Investment[1] = 2
+#Investment[6] = Investment[4]*20
+#Historical  = data_set['Emissoes originais'] 
+Abatidas = data_set['Emissoes abatidas_norm']
+#Abatidas = data_set['Emissões acumuladas']
+# Abatidas[1] 
+#Valor = data_set.Valor
 
-#Outputs: GDP (desireble)[4]
-GDP= data_set[4]
+#Outputs:  and Undisireble (CO2)[1]
+CO2= data_set['Emissoes']
+#CO2_norm = data_set['Alocacao']
+#CO2= Alocacao
+# B = CO2*0.1
+#%%
+"""Calculando a eficiência clássica"""
+#def eficiencia_total(EMISSAO):
+#Calculando a eficiência:
 
-
-def cost_efficiency(DMU):
+def eficiencia(DMU):
     model = ConcreteModel()
     
-#    Chamando variaveis
-     
-    model.h = Var(within=NonNegativeReals)
-#    model.x2 = Var(within=NonNegativeReals)
-    K = np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype = int)
-    L = np.delete(np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype = int),DMU)
-    model.V  = Var(K, within = NonNegativeReals)
+    #Chamando variaveis
     
+    model.u1 = Var(within=NonNegativeReals)
+    # model.u2 = Var(within = NonNegativeReals)
+    
+    model.v1 = Var(within=NonNegativeReals)
+    model.v2 = Var(within = NonNegativeReals)
+    # model.v3 = Var(within = NonNegativeReals)
+    model.v4 = Var(within=NonNegativeReals)
+#    model.e_folga = Var()
     #Chamando objetivo
     
-    model.obj = Objective (expr = model.h, sense = minimize)
-    
+    model.obj = Objective (expr =
+       +model.v1*Energy[DMU]
+    +model.v2*Investment[DMU]
+#    +model.v3*Historical[DMU]
+    +model.v4*Abatidas[DMU]
+#    +model.e_folga
+    , sense = maximize)
+
     #Chamando restrições
     model.con = ConstraintList()
     
+    # model.con.add( float(CO2[DMU])*model.u1+  float(Valor[DMU])*model.u2 ==1)
+    model.con.add( float(CO2[DMU])*model.u1 ==1)
     
-    model.con.add(expr= -sum(model.V[i]*float(Energy[int(i)])*(1+(float(Energy[DMU])*(1-model.h)/sum(float(Energy[int(j)]) for j in L))) for i in K) + model.h*float(Energy[DMU])>=0)
-    model.con.add(expr= -sum(model.V[i]*float(Population[int(i)])*(1+(float(Population[DMU])*(1-model.h)/sum(float(Population[int(j)]) for j in L))) for i in K) + model.h*float(Population[DMU])>=0)
-    model.con.add(expr= -sum(model.V[i]*float(CO2[int(i)])*(1+(float(CO2[DMU])*(1-model.h)/sum(float(CO2[int(j)]) for j in L))) for i in K) + model.h*float(CO2[DMU])>=0)
-    
-    model.con.add(expr = sum(model.V[i]*GDP[int(i)] for i in K)>=float(GDP[DMU]))
-    
-#    model.con.add(expr= sum(model.V[i] for i in K) ==  1 )
-    
-#    Resolvendo o problema
-    solver = SolverFactory('ipopt')
+    for i in np.linspace(0,Energy.shape[0]-1,Energy.shape[0]):
+            model.con.add( 
+               model.v1*float(Energy[int(i)])
+            +model.v2*float(Investment[int(i)])
+#            +model.v3*float(Historical[int(i)])
+            +model.v4*float(Abatidas[int(i)])
+#            +model.e_folga
+            # <= float(CO2[int(i)])*model.u1 + float(Valor[int(i)])*model.u2)
+            <= float(CO2[int(i)])*model.u1)
+                
+    #Resolvendo o problema
+    solver = SolverFactory('glpk')
     result_solver = solver.solve(model, tee = True)
     
     return(model.obj())
-
-x = np.array([[]])
+    
+#Calculando os valores:
+#
+z = np.array([[]])
 for i in np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype=int):
     try:
-        y= cost_efficiency(i)
-        x=np.append(x,y)
+        w= eficiencia(i)
+        z=np.append(z,w)
     except:
-        x= np.append(x,0)
+        z= np.append(z,0)
+        
+Alvos = np.array([[]])
+
+for i in np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype=int):
+    alvo = CO2[i]*z[i]
+    Alvos = np.append(Alvos,alvo)
+
+Alocacao1 = np.array([[]])
+for i in np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype=int):
+    alocacao = Alvos[i]*sum(CO2)/sum(Alvos)
+    Alocacao1 = np.append(Alocacao1,alocacao)
+
+#    return (z)
+#%%
+"""Calculando a eficiência do modelo Feng et al 2015"""    
+
+def eficiencia(DMU):
+    model = ConcreteModel()
+
+    model.h = Var(within = NonNegativeReals) 
+    
+    k = np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype=int)
+    model.v1 = Var(k,within=NonNegativeReals)
+#    model.b = Var(within = NonNegativeReals)
+   
+    #Chamando objetivo
+    
+    model.obj = Objective (expr = model.h , sense = maximize)
+    
+    #Chamando Restrições:
+    model.con = ConstraintList()
+
+#    model.con.add(sum(model.v1[i]*Energy[i] for i in k) <= Energy[DMU]) #Repetir pra cada input
+#    model.con.add(sum(model.v1[i]*Investment[i] for i in k) <= Investment[DMU])
+#    model.con.add(sum(model.v1[i]*Abatidas[i] for i in k) <= Abatidas[DMU])
+#    model.con.add(  model.h*CO2[DMU]<= sum(model.v1[i]*CO2[i] for i in k)) #Output
+
+#    
+    model.con.add( model.h*Energy[DMU]<=sum(model.v1[i]*Energy[i] for i in k)) #Aqui é como output ?
+#    model.con.add( model.h*Investment[DMU]<=sum(model.v1[i]*Investment[i] for i in k)) #Aqui é como output ?
+    # model.con.add( model.h*Abatidas[DMU]<=sum(model.v1[i]*Abatidas[i] for i in k)) #Aqui é como output ?
+    model.con.add(  sum(model.v1[i]*CO2[i] for i in k)<=CO2[DMU]) #Output
+    
+#    model.con.add(sum(model.v1[i] for i in k) == 1)
+#    model.con.add(sum(model.v1[i]*CO2[i] for i in k) == float(CO2[DMU])-B[DMU])
+    
+#    model.con.add(float(CO2[DMU])-model.b >=0 )
+    
+#    model.con.add(model.b<=Historical[DMU])
+    
+    solver =SolverFactory('glpk')
+    result_solver = solver.solve(model, tee=True)
+    
+    
+    return(model.obj())
+    
+z2 = np.array([[]])
+for i in np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype=int):
+    try:
+        w= eficiencia(i)
+        z2=np.append(z2,w)
+    except:
+        z2= np.append(z2,0)
+        
+z2= 1/z2
+
+#%%
+Alvos = np.array([[]])
+
+for i in np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype=int):
+    alvo = CO2[i]*z2[i]
+    Alvos = np.append(Alvos,alvo)
+
+Alocacao2 = np.array([[]])
+for i in np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype=int):
+    alocacao = Alvos[i]*sum(CO2)/sum(Alvos)
+    Alocacao2 = np.append(Alocacao2,alocacao)
+
+#REPITO ISSO AQUI PRA REAUSTAR
+
+#iteracao=1
+#while iteracao <50:
+#    Alocacao = np.array([[]])
+#    for i in np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype=int):
+#        alocacao = Alvos[i]*sum(CO2)/sum(Alvos)
+#        Alocacao = np.append(Alocacao,alocacao)
+#    
+#    
+#    for i in data_set.index:
+#        if Alocacao[i]/data_set['Emissoes originais'][i] >1:
+#            Alvos[i] = Alvos[i]/(Alocacao[i]/data_set['Emissoes originais'][i])
+#        else:
+#            pass
+#    razao = Alocacao/data_set['Emissoes originais']
+#    iteracao += 1
+#    
+#%%
+#            
+## Calculate the difference between the allocated emissions and original emissions
+#emissions_diff = Alocacao - data_set['Emissoes originais']
+#
+## Find the industries that have higher allocated emissions than original emissions
+#over_allocated = emissions_diff[emissions_diff > 0].index
+#
+## Calculate the total emissions of the industries that have original emissions lower than allocated emissions
+#under_allocated_total = Alvos[emissions_diff < 0].sum()
+#
+## Calculate the percentage of emissions each under-allocated industry contributes to the total
+#under_allocated_percentages =Alvos[emissions_diff < 0] / under_allocated_total
+#
+## Calculate the amount of emissions to be reallocated from each under-allocated industry
+#reallocated_emissions = under_allocated_percentages * emissions_diff[over_allocated].sum()
+#
+## Create a copy of the allocated emissions dataframe to store the new reallocated emissions
+#new_allocated_emissions = Alocacao.copy()
+#
+## Iterate over the over-allocated industries and reallocate the excess emissions
+#for industry in over_allocated:
+#    # Calculate the proportion of excess emissions to be reallocated from this industry
+#    proportion = emissions_diff[industry] / emissions_diff[over_allocated].sum()
+#    # Calculate the amount of emissions to be reallocated from this industry
+#    reallocated_amount = proportion * reallocated_emissions
+#    # Add the reallocated emissions to the other industries
+#    new_allocated_emissions[emissions_diff < 0] += reallocated_amount * under_allocated_percentages
+#    new_allocated_emissions[industry] = data_set['Emissoes originais'][industry]
+#
+## Print the new allocated emissions dataframe with the reallocated emissions
+#print(new_allocated_emissions)
+#
+##
+#
+#
+#FAlta arrumar isso aqui. To tentando alocar as emissões excendentes de forma proporcional aos alvos    
+#for j in CO2.index:
+#    if Alocacao[j]-data_set['Emissoes originais'][j]>0:
+#        Dif = Alocacao[j]-data_set['Emissoes originais'][j] 
+#        
+#        Alocacao = np.array([[]])
+#        
+#        for i in np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype=int):
+#            if  i == j:
+#                alocacao = data_set['Emissoes originais']
+#            else:
+#                
+#                alocacao = Alvos[i]*sum(CO2)/sum(Alvos) +Dif*alvo/sum(np.delete(Alvos,j))
+#                Alocacao = np.append(Alocacao,alocacao)
+#
+#for j in range(len(CO2)):
+#    if Alocacao[j]-data_set['Emissoes originais'][j]>0:
+#        Dif = Alocacao[j]-data_set['Emissoes originais'][j] 
+#        print(Dif)
+#        
+#        Alocacao = np.array([[]])
+#        
+#        for i in range(len(CO2)):
+#            if  i == j:
+#                alocacao = data_set['Emissoes originais']
+#                print(i)
+#            else:
+##                pass
+#                alocacao = Alvos[i]*sum(CO2)/sum(Alvos) +Dif*alvo/sum(np.delete(Alvos,j))
+#                Alocacao = np.append(Alocacao,alocacao)
+#                print(Alocacao)
+
+
+#x = sum(CO2[0]/CO2[1:].sum()*CO2[i]*(1-z[i]) for i in CO2[1:].index) - CO2[0]*(1-z[0])
+#
+#for i in CO2.index:
+#    x =sum(CO2[i]/CO2[:].drop(j).sum()*CO2[j]*(1-z[j]) for j in CO2.index.drop(i)) - CO2[i]*(1-z[i])
+#    CO2[i]=CO2[i]+x
+#    print(CO2[i]+x)
+
+#teste= 0   
+#while teste <2:
+#    z = np.array([[]])
+#    for i in np.linspace(0,Energy.shape[0]-1,Energy.shape[0],dtype=int):
+#        try:
+#            w= eficiencia(i)
+#            z=np.append(z,w)
+#        except:
+#            z= np.append(z,0)
+#            
+#    for i in CO2.index:
+#        x =sum(CO2[i]/CO2[:].drop(j).sum()*CO2[j]*(1-z[j]) for j in CO2.index.drop(i))
+#        y = CO2[i]*(1-z[i])
+##        CO2[i]=CO2[i]+x-y
+##        print(CO2[i]+x-y)
+#        print(data_set['Setor'][i],x,y,x-y)
+#    teste = teste+1
+
+
+
